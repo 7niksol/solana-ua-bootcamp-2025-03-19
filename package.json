@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "@solana-developers/helpers": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1"
   }
 }
