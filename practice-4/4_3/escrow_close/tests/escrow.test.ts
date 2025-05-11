@@ -379,7 +379,7 @@ describe("escrow", () => {
     const [vaultAddress, _vaultBump] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("vault"),
-        offerAddress.toBuffer(),
+        offerAddress.offerAddress.toBuffer(),
       ],
       program.programId
     );
@@ -394,9 +394,8 @@ describe("escrow", () => {
     const txSig = await program.methods
       .closeOffer()
       .accounts({
-        offer: offerAddress,
+        offer: offerAddress.offerAddress,
         maker: alice.publicKey,
-        vault: vaultAddress,
         makerTokenAccount: aliceUsdcAccount,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
@@ -410,7 +409,7 @@ describe("escrow", () => {
     expect(vaultInfo).toBeNull();
   
     // Офер акаунт має бути закритий
-    const offerInfo = await connection.getAccountInfo(offerAddress);
+    const offerInfo = await connection.getAccountInfo(offerAddress.offerAddress);
     expect(offerInfo).toBeNull();
   
     // Токени повернулись Alice (має бути +offeredUsdc)

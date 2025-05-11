@@ -7,8 +7,16 @@ pub use crate::instructions::*;
 
 #[derive(Accounts)]
 pub struct CloseOffer<'info> {
-    #[account(mut)]
-    pub offer: Account<'info, Offer>,
+    #[account(
+        mut,
+        close = maker,
+        has_one = maker,
+        has_one = token_mint_a,
+        has_one = token_mint_b,
+        // seeds = [b"offer", maker.key().as_ref(), offer.id.to_le_bytes().as_ref()],
+        // bump = offer.bump
+    )]
+    offer: Account<'info, Offer>,
 
     #[account(mut)]
     pub maker: Signer<'info>,
@@ -16,6 +24,9 @@ pub struct CloseOffer<'info> {
     #[account(mut, address = offer.token_mint_a)]
     pub token_mint_a: InterfaceAccount<'info, Mint>,
 
+    #[account(mut, address = offer.token_mint_b)]
+    pub token_mint_b: InterfaceAccount<'info, Mint>,
+    
     #[account(
         mut,
         associated_token::mint = token_mint_a,

@@ -7,9 +7,7 @@ use anchor_lang::prelude::*;
 
 pub use constants::*;
 pub use state::*;
-pub use instructions::MakeOffer;
-pub use instructions::TakeOffer;
-pub use instructions::closer::CloseOffer;
+pub use instructions::*;
 
 declare_id!("41xZPpdM3KZxcK2JWMtj6uXJ3EjqjsJRfgKX4x2ymYup");
 
