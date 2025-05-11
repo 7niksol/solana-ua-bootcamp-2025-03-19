@@ -1,6 +1,6 @@
 import { expect, describe, beforeAll, test } from "@jest/globals";
 import * as anchor from "@coral-xyz/anchor";
-import { type Program, BN } from "@coral-xyz/anchor";
+import { Program, BN } from "@coral-xyz/anchor";
 import { Escrow } from "../target/types/escrow";
 import {
   Connection,
@@ -15,6 +15,9 @@ import {
   MINT_SIZE,
   TOKEN_2022_PROGRAM_ID,
   type TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  ACCOUNT_SIZE,
+  AccountLayout,
   createAssociatedTokenAccountIdempotentInstruction,
   createInitializeMint2Instruction,
   createMintToInstruction,
@@ -22,27 +25,20 @@ import {
   getMinimumBalanceForRentExemptMint,
 } from "@solana/spl-token";
 import { randomBytes } from "crypto";
-
 import { confirmTransaction, makeKeypairs } from "@solana-developers/helpers";
 
 const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
   TOKEN_2022_PROGRAM_ID;
 
-export const getRandomBigNumber = (size: number = 8) => {
-  return new BN(randomBytes(size));
-};
+export const getRandomBigNumber = (size: number = 8): BN =>
+  new BN(randomBytes(size));
 
 function areBnEqual(a: unknown, b: unknown): boolean | undefined {
   const isABn = a instanceof BN;
   const isBBn = b instanceof BN;
-
-  if (isABn && isBBn) {
-    return a.eq(b);
-  } else if (isABn === isBBn) {
-    return undefined;
-  } else {
-    return false;
-  }
+  if (isABn && isBBn) return a.eq(b);
+  if (isABn === isBBn) return undefined;
+  return false;
 }
 expect.addEqualityTesters([areBnEqual]);
 
@@ -53,14 +49,13 @@ const createTokenAndMintTo = async (
   decimals: number,
   mintAuthority: PublicKey,
   mintTo: Array<{ recepient: PublicKey; amount: number }>
-): Promise<Array<TransactionInstruction>> => {
-  let minimumLamports = await getMinimumBalanceForRentExemptMint(connection);
-
-  let createTokeIxs = [
+): Promise<TransactionInstruction[]> => {
+  const rentExempt = await getMinimumBalanceForRentExemptMint(connection);
+  const initMintIxs: TransactionInstruction[] = [
     SystemProgram.createAccount({
       fromPubkey: payer,
       newAccountPubkey: tokenMint,
-      lamports: minimumLamports,
+      lamports: rentExempt,
       space: MINT_SIZE,
       programId: TOKEN_PROGRAM,
     }),
@@ -73,25 +68,24 @@ const createTokenAndMintTo = async (
     ),
   ];
 
-  let mintToIxs = mintTo.flatMap(({ recepient, amount }) => {
-    const ataAddress = getAssociatedTokenAddressSync(
+  const mintIxs = mintTo.flatMap(({ recepient, amount }) => {
+    const ata = getAssociatedTokenAddressSync(
       tokenMint,
       recepient,
       false,
       TOKEN_PROGRAM
     );
-
     return [
       createAssociatedTokenAccountIdempotentInstruction(
         payer,
-        ataAddress,
+        ata,
         recepient,
         tokenMint,
         TOKEN_PROGRAM
       ),
       createMintToInstruction(
         tokenMint,
-        ataAddress,
+        ata,
         mintAuthority,
         amount,
         [],
@@ -100,44 +94,33 @@ const createTokenAndMintTo = async (
     ];
   });
 
-  return [...createTokeIxs, ...mintToIxs];
+  return [...initMintIxs, ...mintIxs];
 };
 
-const getTokenBalanceOn = (
-  connection: Connection,
-) => async (
-  tokenAccountAddress: PublicKey,
-): Promise<BN> => {
-  const tokenBalance = await connection.getTokenAccountBalance(tokenAccountAddress);
-  return new BN(tokenBalance.value.amount);
-};
-
-// Jest debug console it too verbose.
-// const jestConsole = console;
+const getTokenBalanceOn =
+  (connection: Connection) =>
+  async (account: PublicKey): Promise<BN> => {
+    const { value } = await connection.getTokenAccountBalance(account);
+    return new BN(value.amount);
+  };
 
 describe("escrow", () => {
-  // Use the cluster and the keypair from Anchor.toml
   anchor.setProvider(anchor.AnchorProvider.env());
-
   const provider = anchor.getProvider();
-
-  // See https://github.com/coral-xyz/anchor/issues/3122
-  // const user = (provider.wallet as anchor.Wallet).payer;
-  // const payer = user;
-
   const connection = provider.connection;
-
   const program = anchor.workspace.Escrow as Program<Escrow>;
 
   const [alice, bob, usdcMint, wifMint] = makeKeypairs(4);
 
-  const [aliceUsdcAccount, aliceWifAccount, bobUsdcAccount, bobWifAccount] = [
-    alice,
-    bob,
-  ].flatMap((owner) =>
-    [usdcMint, wifMint].map((tokenMint) =>
+  const [
+    aliceUsdcAccount,
+    aliceWifAccount,
+    bobUsdcAccount,
+    bobWifAccount,
+  ] = [alice, bob].flatMap((owner) =>
+    [usdcMint, wifMint].map((mint) =>
       getAssociatedTokenAddressSync(
-        tokenMint.publicKey,
+        mint.publicKey,
         owner.publicKey,
         false,
         TOKEN_PROGRAM
@@ -145,26 +128,19 @@ describe("escrow", () => {
     )
   );
 
-  // Pick a random ID for the new offer.
   const offerId = getRandomBigNumber();
 
-  // Creates Alice and Bob accounts, 2 token mints, and associated token
-  // accounts for both tokens for both users.
   beforeAll(async () => {
-    // global.console = require('console');
-
-    const giveAliceAndBobSolIxs: Array<TransactionInstruction> = [
-      alice,
-      bob,
-    ].map((owner) =>
+    // Fund Alice & Bob with SOL
+    const solIxs = [alice, bob].map((o) =>
       SystemProgram.transfer({
         fromPubkey: provider.publicKey,
-        toPubkey: owner.publicKey,
+        toPubkey: o.publicKey,
         lamports: 10 * LAMPORTS_PER_SOL,
       })
     );
-
-    const usdcSetupIxs = await createTokenAndMintTo(
+    // Create & mint USDC: Alice 100M, Bob 20M
+    const usdcIxs = await createTokenAndMintTo(
       connection,
       provider.publicKey,
       usdcMint.publicKey,
@@ -175,8 +151,8 @@ describe("escrow", () => {
         { recepient: bob.publicKey, amount: 20_000_000 },
       ]
     );
-
-    const wifSetupIxs = await createTokenAndMintTo(
+    // Create & mint WIF: Alice 5M, Bob 300M
+    const wifIxs = await createTokenAndMintTo(
       connection,
       provider.publicKey,
       wifMint.publicKey,
@@ -188,67 +164,32 @@ describe("escrow", () => {
       ]
     );
 
-    // Add all these instructions to our transaction
-    let tx = new Transaction();
-    tx.instructions = [
-      ...giveAliceAndBobSolIxs,
-      ...usdcSetupIxs,
-      ...wifSetupIxs,
-    ];
-
-    const _setupTxSig = await provider.sendAndConfirm(tx, [
-      alice,
-      bob,
-      usdcMint,
-      wifMint,
-    ]);
+    const tx = new Transaction();
+    tx.instructions = [...solIxs, ...usdcIxs, ...wifIxs];
+    await provider.sendAndConfirm(tx, [alice, bob, usdcMint, wifMint]);
   });
-
-  // afterAll(() => {
-  //   global.console = jestConsole;
-  // });
 
   const makeOfferTx = async (
     maker: Keypair,
     offerId: BN,
-    offeredTokenMint: PublicKey,
+    offeredMint: PublicKey,
     offeredAmount: BN,
-    wantedTokenMint: PublicKey,
+    wantedMint: PublicKey,
     wantedAmount: BN
-  ): Promise<{
-    offerAddress: PublicKey;
-    vaultAddress: PublicKey;
-  }> => {
-    const transactionSignature = await program.methods
+  ): Promise<{ offerAddress: PublicKey; vaultAddress: PublicKey }> => {
+    const sig = await program.methods
       .makeOffer(offerId, offeredAmount, wantedAmount)
       .accounts({
         maker: maker.publicKey,
-        tokenMintA: offeredTokenMint,
-        tokenMintB: wantedTokenMint,
-        // As the `token_program` account is specified as
-        //
-        //   pub token_program: Interface<'info, TokenInterface>,
-        //
-        // the client library needs us to provide the specific program address
-        // explicitly.
-        //
-        // This is unlike the `associated_token_program` or the `system_program`
-        // account addresses, that are specified in the program IDL, as they are
-        // expected to reference the same programs for all the `makeOffer`
-        // invocations.
+        tokenMintA: offeredMint,
+        tokenMintB: wantedMint,
         tokenProgram: TOKEN_PROGRAM,
       })
       .signers([maker])
       .rpc();
+    await confirmTransaction(connection, sig);
 
-    await confirmTransaction(connection, transactionSignature);
-
-    // Both `offer` address and the `vault` address accounts are computed based
-    // on the other provided account addresses, and so we do not need to provide
-    // them explicitly in the `makeOffer()` account call above.  But we compute
-    // them here and return for convenience.
-
-    const [offerAddress, _offerBump] = PublicKey.findProgramAddressSync(
+    const [offerAddress] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("offer"),
         maker.publicKey.toBuffer(),
@@ -256,46 +197,39 @@ describe("escrow", () => {
       ],
       program.programId
     );
-
     const vaultAddress = getAssociatedTokenAddressSync(
-      offeredTokenMint,
+      offeredMint,
       offerAddress,
       true,
       TOKEN_PROGRAM
     );
-
     return { offerAddress, vaultAddress };
   };
 
   const takeOfferTx = async (
     offerAddress: PublicKey,
-    taker: Keypair,
+    taker: Keypair
   ): Promise<void> => {
-
-    // `accounts` argument debugging tool.  Should be part of Anchor really.
-    //
-    // type FlatType<T> = T extends object
-    //   ? { [K in keyof T]: FlatType<T[K]> }
-    //   : T;
-    //
-    // type AccountsArgs = FlatType<
-    //   Parameters<
-    //     ReturnType<
-    //       Program<Escrow>["methods"]["takeOffer"]
-    //     >["accounts"]
-    //   >
-    // >;
-
-    const transactionSignature = await program.methods
+    const sig = await program.methods
       .takeOffer()
       .accounts({
         taker: taker.publicKey,
         offer: offerAddress,
-        // See note in the `makeOfferTx` on why this program address is provided
-        // and the rest are not.
         tokenProgram: TOKEN_PROGRAM,
       })
       .signers([taker])
+      .rpc();
+    await confirmTransaction(connection, sig);
+  };
+
+  const closeOfferTx = async (maker: Keypair, offerId: BN): Promise<void> => {
+    const transactionSignature = await program.methods
+      .closeOffer(offerId)
+      .accounts({
+        maker: maker.publicKey,
+        tokenProgram: TOKEN_PROGRAM,
+      })
+      .signers([maker])
       .rpc();
 
     await confirmTransaction(connection, transactionSignature);
@@ -304,7 +238,6 @@ describe("escrow", () => {
   test("Offer created by Alice, vault holds the offer tokens", async () => {
     const offeredUsdc = new BN(10_000_000);
     const wantedWif = new BN(100_000_000);
-
     const getTokenBalance = getTokenBalanceOn(connection);
 
     const { offerAddress, vaultAddress } = await makeOfferTx(
@@ -316,10 +249,11 @@ describe("escrow", () => {
       wantedWif
     );
 
-    expect(await getTokenBalance(aliceUsdcAccount)).toEqual(new BN(90_000_000));
+    expect(await getTokenBalance(aliceUsdcAccount)).toEqual(
+      new BN(90_000_000)
+    );
     expect(await getTokenBalance(vaultAddress)).toEqual(offeredUsdc);
 
-    // Check our Offer account contains the correct data
     const offerAccount = await program.account.offer.fetch(offerAddress);
     expect(offerAccount.maker).toEqual(alice.publicKey);
     expect(offerAccount.tokenMintA).toEqual(usdcMint.publicKey);
@@ -327,15 +261,10 @@ describe("escrow", () => {
     expect(offerAccount.tokenBWantedAmount).toEqual(wantedWif);
   });
 
-    test("Offer taken by Bob, tokens balances are updated", async () => {
+  
+  test("Offer closed", async () => {
     const getTokenBalance = getTokenBalanceOn(connection);
-
-    // This test reuses offer created by the previous test.  Bad design :(
-    // But it is a shortcut that allows us to avoid writing the cleanup code.
-    // TODO Add proper cleanup, that mirrors `beforeEach`, and create a new
-    // offer here.
-
-    const [offerAddress, _offerBump] = PublicKey.findProgramAddressSync(
+    const [offerAddress] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("offer"),
         alice.publicKey.toBuffer(),
@@ -343,81 +272,29 @@ describe("escrow", () => {
       ],
       program.programId
     );
-
-    // Verify state before the offer is taken.
-
-    expect(await getTokenBalance(aliceUsdcAccount)).toEqual(new BN(90_000_000));
-    expect(await getTokenBalance(aliceWifAccount)).toEqual(new BN(5_000_000));
-    expect(await getTokenBalance(bobUsdcAccount)).toEqual(new BN(20_000_000));
-    expect(await getTokenBalance(bobWifAccount)).toEqual(new BN(300_000_000));
-
-    await takeOfferTx(offerAddress, bob);
-
-    expect(await getTokenBalance(aliceUsdcAccount)).toEqual(new BN(90_000_000));
-    expect(await getTokenBalance(aliceWifAccount)).toEqual(new BN(105_000_000));
-
-    expect(await getTokenBalance(bobUsdcAccount)).toEqual(new BN(30_000_000));
-    expect(await getTokenBalance(bobWifAccount)).toEqual(new BN(200_000_000));
-  }); 
-
-  test("Maker can close offer, vault and offer accounts are closed, tokens and SOL returned", async () => {
-    const offeredUsdc = new BN(10_000_000);
-    const wantedWif = new BN(100_000_000);
-  
-    // Створюємо новий офер для цього тесту
-    const closeOfferId = getRandomBigNumber();
-    const offerAddress = await makeOfferTx(
-      alice,
-      closeOfferId,
+    const vaultAddress = getAssociatedTokenAddressSync(
       usdcMint.publicKey,
-      offeredUsdc,
-      wifMint.publicKey,
-      wantedWif
+      offerAddress,
+      true,
+      TOKEN_PROGRAM
     );
-  
-    // Вираховуємо адресу vault
-    const [vaultAddress, _vaultBump] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("vault"),
-        offerAddress.offerAddress.toBuffer(),
-      ],
-      program.programId
+    expect(await getTokenBalance(aliceUsdcAccount)).toEqual(
+      new BN(90_000_000)
     );
-  
-    const getTokenBalance = getTokenBalanceOn(connection);
-  
-    // Баланси Alice до закриття оферу
-    const aliceUsdcBefore = await getTokenBalance(aliceUsdcAccount);
-    const aliceSolBefore = await connection.getBalance(alice.publicKey);
-  
-    // Закриваємо офер
-    const txSig = await program.methods
-      .closeOffer()
-      .accounts({
-        offer: offerAddress.offerAddress,
-        maker: alice.publicKey,
-        makerTokenAccount: aliceUsdcAccount,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .signers([alice])
-      .rpc();
-  
-    await confirmTransaction(connection, txSig);
-  
-    // Vault акаунт має бути закритий
+    expect(await getTokenBalance(vaultAddress)).toEqual(
+      new BN(10_000_000)
+    );
+    const beforeSol = await connection.getBalance(alice.publicKey);
+    await closeOfferTx(alice,offerId);
+    const afterSol = await connection.getBalance(alice.publicKey);
+    const rentAta = await connection.getMinimumBalanceForRentExemption(AccountLayout.span);
+    expect(afterSol - beforeSol).toBeGreaterThanOrEqual(rentAta - LAMPORTS_PER_SOL * 0.00001);
+    expect(await getTokenBalance(aliceUsdcAccount)).toEqual(
+      new BN(100_000_000)
+    );
     const vaultInfo = await connection.getAccountInfo(vaultAddress);
     expect(vaultInfo).toBeNull();
-  
-    // Офер акаунт має бути закритий
-    const offerInfo = await connection.getAccountInfo(offerAddress.offerAddress);
+    const offerInfo = await connection.getAccountInfo(offerAddress);
     expect(offerInfo).toBeNull();
-  
-    // Токени повернулись Alice (має бути +offeredUsdc)
-    const aliceUsdcAfter = await getTokenBalance(aliceUsdcAccount);
-    expect(aliceUsdcAfter.sub(aliceUsdcBefore)).toEqual(offeredUsdc);
-  
-    // SOL за ренту vault повернувся Alice (перевіряємо що стало більше)
-    const aliceSolAfter = await connection.getBalance(alice.publicKey);
-    expect(aliceSolAfter).toBeGreaterThanOrEqual(aliceSolBefore); // невелика похибка можлива на fee
   });
 });

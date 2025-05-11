@@ -1,39 +1,38 @@
+use anchor_lang::prelude::*;
+
 pub mod constants;
 pub mod error;
 pub mod instructions;
 pub mod state;
 
-use anchor_lang::prelude::*;
-
 pub use constants::*;
-pub use state::*;
 pub use instructions::*;
+pub use state::*;
 
-declare_id!("41xZPpdM3KZxcK2JWMtj6uXJ3EjqjsJRfgKX4x2ymYup");
+declare_id!("6NwYqcJLFncnswKJKD4uvYuYNX2J1b1CxmLH2e7oc4DG");
 
 #[program]
 pub mod escrow {
     use super::*;
 
     pub fn make_offer(
-        context: Context<MakeOffer>,
+        ctx: Context<MakeOffer>,
         id: u64,
         token_a_offered_amount: u64,
         token_b_wanted_amount: u64,
     ) -> Result<()> {
-        instructions::make_offer::send_offered_tokens_to_vault(&context, token_a_offered_amount)?;
-        instructions::make_offer::save_offer(context, id, token_b_wanted_amount)
+        instructions::make_offer::send_offered_tokens_to_vault(&ctx, token_a_offered_amount)?;
+        instructions::make_offer::save_offer(ctx, id, token_b_wanted_amount)
     }
 
-    pub fn take_offer(context: Context<TakeOffer>) -> Result<()> {
-        instructions::take_offer::send_wanted_tokens_to_maker(&context)?;
-        instructions::take_offer::withdraw_and_close_vault(context)
+    pub fn take_offer(ctx: Context<TakeOffer>) -> Result<()> {
+        instructions::take_offer::send_wanted_tokens_to_maker(&ctx)?;
+        instructions::take_offer::withdraw_and_close_vault(ctx)
     }
 
-    pub fn close_offer(
-        context: Context<CloseOffer>,
-    ) -> Result<()> {
-        instructions::closer::close_offer(context)
-    }
 
+    pub fn close_offer(ctx: Context<CloseOffer>, id: u64) -> Result<()> {
+
+        instructions::closer::close_offer(ctx,id)
+    }
 }

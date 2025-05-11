@@ -6,7 +6,6 @@ use anchor_spl::{
 };
 
 use crate::{Offer, ANCHOR_DISCRIMINATOR};
-
 #[derive(Accounts)]
 #[instruction(id: u64)]
 pub struct MakeOffer<'info> {
@@ -26,7 +25,6 @@ pub struct MakeOffer<'info> {
         associated_token::token_program = token_program
     )]
     pub maker_token_account_a: InterfaceAccount<'info, TokenAccount>,
-
     #[account(
         init,
         payer = maker,
@@ -49,7 +47,6 @@ pub struct MakeOffer<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
-
 pub fn send_offered_tokens_to_vault(
     context: &Context<MakeOffer>,
     token_a_offered_amount: u64,
@@ -72,7 +69,6 @@ pub fn send_offered_tokens_to_vault(
         context.accounts.token_mint_a.decimals,
     )
 }
-
 pub fn save_offer(context: Context<MakeOffer>, id: u64, token_b_wanted_amount: u64) -> Result<()> {
     context.accounts.offer.set_inner(Offer {
         id,
@@ -84,4 +80,3 @@ pub fn save_offer(context: Context<MakeOffer>, id: u64, token_b_wanted_amount: u
     });
     Ok(())
 }
-

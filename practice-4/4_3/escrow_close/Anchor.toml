@@ -1,13 +1,12 @@
 [toolchain]
 package_manager = "yarn"
-anchor_version = "0.31.1"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-escrow = "41xZPpdM3KZxcK2JWMtj6uXJ3EjqjsJRfgKX4x2ymYup"
+escrow = "6NwYqcJLFncnswKJKD4uvYuYNX2J1b1CxmLH2e7oc4DG"
 
 [registry]
 url = "https://api.apr.dev"

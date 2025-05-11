@@ -9,7 +9,6 @@ use anchor_spl::{
 };
 
 use crate::Offer;
-
 #[derive(Accounts)]
 pub struct TakeOffer<'info> {
     #[account(mut)]
@@ -21,7 +20,6 @@ pub struct TakeOffer<'info> {
     pub token_mint_a: InterfaceAccount<'info, Mint>,
 
     pub token_mint_b: InterfaceAccount<'info, Mint>,
-
     #[account(
         init_if_needed,
         payer = taker,
@@ -38,7 +36,6 @@ pub struct TakeOffer<'info> {
         associated_token::token_program = token_program,
     )]
     pub taker_token_account_b: Box<InterfaceAccount<'info, TokenAccount>>,
-
     #[account(
         init_if_needed,
         payer = taker,
@@ -58,7 +55,6 @@ pub struct TakeOffer<'info> {
         // bump = offer.bump
     )]
     offer: Account<'info, Offer>,
-
     #[account(
         mut,
         associated_token::mint = token_mint_a,
@@ -71,7 +67,6 @@ pub struct TakeOffer<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
-
 pub fn send_wanted_tokens_to_maker(ctx: &Context<TakeOffer>) -> Result<()> {
     let transfer_accounts = TransferChecked {
         from: ctx.accounts.taker_token_account_b.to_account_info(),
@@ -90,7 +85,6 @@ pub fn send_wanted_tokens_to_maker(ctx: &Context<TakeOffer>) -> Result<()> {
         ctx.accounts.token_mint_b.decimals,
     )
 }
-
 pub fn withdraw_and_close_vault(ctx: Context<TakeOffer>) -> Result<()> {
     let signer_seeds: [&[&[u8]]; 1] = [&[
         b"offer",
